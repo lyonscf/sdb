@@ -11,20 +11,23 @@
   
   http://aws.amazon.com/simpledb/
 
-  Built on top of the Java API:
+  Built on top of the Java API SDK:
 
-  http://developer.amazonwebservices.com/connect/entry.jspa?externalID=1132&categoryID=189
-  http://s3.amazonaws.com/awscode/amazon-simpledb/2007-11-07/java/library/doc/index.html"
+  http://aws.amazon.com/sdkforjava/
+  http://docs.amazonwebservices.com/AWSJavaSDK/latest/javadoc/index.html"
+ 
  (use clojure.contrib.pprint)
  (import
-   (com.amazonaws.sdb AmazonSimpleDB AmazonSimpleDBClient AmazonSimpleDBConfig)
-   (com.amazonaws.sdb.model
+   (com.amazonaws.services.simpledb AmazonSimpleDB AmazonSimpleDBClient)
+   (com.amazonaws.services.simpledb.model
      Attribute BatchPutAttributesRequest CreateDomainRequest 
      DeleteAttributesRequest DeleteDomainRequest DomainMetadataRequest  
      GetAttributesRequest Item ListDomainsRequest  
      PutAttributesRequest ReplaceableAttribute ReplaceableItem
-     ResponseMetadata SelectRequest)
-   (com.amazonaws.sdb.util AmazonSimpleDBUtil)))
+     SelectRequest)
+   (com.amazonaws.services.simpledb.util SimpleDBUtils)
+   (com.amazonaws.auth BasicAWSCredentials)
+   (com.amazonaws ClientConfiguration)))
 
 (defn uuid
   "Given no arg, generates a random UUID, else takes a string
@@ -37,10 +40,10 @@
   account. The same client can be reused for multiple requests (from
   the same thread?)."
   ([aws-key aws-secret-key config]
-     (AmazonSimpleDBClient. aws-key aws-secret-key config))
+     (AmazonSimpleDBClient. (BasicAWSCredentials. aws-key aws-secret-key) config))
   ([aws-key aws-secret-key]
      (create-client aws-key aws-secret-key
-                    (.withSignatureVersion (AmazonSimpleDBConfig.) "1"))))
+                    (.withUserAgent (ClientConfiguration.) "Clojure SDB"))))
 
 (defn create-domain
   "Creates a domain in the account. This is an administrative operation"
@@ -52,10 +55,8 @@
   [client]
   (vec
     (.. client
-      (listDomains
-        (ListDomainsRequest.))
-      getListDomainsResult
-      getDomainName)))
+	listDomains
+	getDomainNames)))
 
 (defn domain-metadata 
   "Returns a map of domain metadata"
@@ -63,7 +64,6 @@
   (select-keys
     (-> client
       (.domainMetadata (DomainMetadataRequest. domain))
-      .getDomainMetadataResult
       bean)
     [:timestamp :attributeValuesSizeBytes  :attributeNameCount  :itemCount
      :attributeValueCount  :attributeNamesSizeBytes :itemNamesSizeBytes]))
@@ -101,7 +101,7 @@
 (defmethod to-sdb-str Integer [i] (encode-sdb-str "i" (encode-integer 10000000000 i)))
 (defmethod to-sdb-str Long [n] (encode-sdb-str "l" (encode-integer 10000000000000000000 n)))
 (defmethod to-sdb-str java.util.UUID [u] (encode-sdb-str "U" u))
-(defmethod to-sdb-str java.util.Date [d] (encode-sdb-str "D" (AmazonSimpleDBUtil/encodeDate d)))
+(defmethod to-sdb-str java.util.Date [d] (encode-sdb-str "D" (SimpleDBUtils/encodeDate d)))
 (defmethod to-sdb-str Boolean [z] (encode-sdb-str "z" z))
 
 (defmulti decode-sdb-str (fn [tag s] tag))
@@ -110,7 +110,7 @@
 (defmethod decode-sdb-str "i" [_ i] (decode-integer 10000000000 i))
 (defmethod decode-sdb-str "l" [_ n] (decode-integer 10000000000000000000 n))
 (defmethod decode-sdb-str "U" [_ u] (java.util.UUID/fromString u))
-(defmethod decode-sdb-str "D" [_ d] (AmazonSimpleDBUtil/decodeDate d))
+(defmethod decode-sdb-str "D" [_ d] (SimpleDBUtils/decodeDate d))
 (defmethod decode-sdb-str "z" [_ z] (condp = z, "true" true, "false" false))
 
 (defn- item-attrs [item]
@@ -130,12 +130,15 @@
             #{} (item-attrs item))))
 
 (defn- replaceable-attrs [item add-to?]
-  (map (fn [[k v]] (ReplaceableAttribute. (to-sdb-str k) (to-sdb-str v) (not (add-to? k))))
-                  (item-attrs item)))
+  (map (fn [[k v]] (doto (ReplaceableAttribute.)
+			  (.setName (to-sdb-str k))
+			  (.setValue (to-sdb-str v))
+			  (.setReplace (not (add-to? k)))))
+       (item-attrs item)))
 
 (defn put-attrs
   "Puts attrs for one item into the domain. By default, attrs replace
-  all values present at the same attrs/keys. You can pass an add-to?
+  all values present at the same attrys/keys. You can pass an add-to?
   function (usually a set), and when it returns true for a key, values
   will be added to the set of values at that key, if any."
   ([client domain item] (put-attrs client domain item #{}))
@@ -151,8 +154,12 @@
     (.batchPutAttributes client
       (BatchPutAttributesRequest. domain
         (map
-          #(ReplaceableItem. (to-sdb-str (:sdb/id %)) (replaceable-attrs % add-to?))
-          items)))))
+	 (fn [item]
+	    (.withAttributes
+	     (.withName (ReplaceableItem.)
+			(to-sdb-str (:sdb/id item)))
+	     (replaceable-attrs item add-to?)))
+	  items)))))
 
 (defn setify
   "If v is a set, returns it, else returns a set containing v"
@@ -172,8 +179,8 @@
   gets all attrs for the item."
   [client domain item-id & attrs]
   (let [r (.getAttributes client
-                          (GetAttributesRequest. domain (to-sdb-str item-id) (map to-sdb-str attrs)))
-        attrs (.. r getGetAttributesResult getAttribute)]
+                          (.withAttributeNames (GetAttributesRequest. domain (to-sdb-str item-id)) (map to-sdb-str attrs)))
+        attrs (.getAttributes r)]
     (build-item item-id attrs)))
 
 ;todo remove a subset of a set of vals
@@ -185,11 +192,14 @@
   ([client domain item-id] (delete-attrs client domain item-id #{}))
   ([client domain item-id attrs]
     (.deleteAttributes client
-      (DeleteAttributesRequest. domain (to-sdb-str item-id)
+      (.withAttributes (DeleteAttributesRequest. domain (to-sdb-str item-id))
         (cond
-          (set? attrs) (map #(Attribute. (to-sdb-str %) nil) attrs)
-          (map? attrs) (map (fn [[k v]] (Attribute. (to-sdb-str k) (to-sdb-str v))) attrs)
+          (set? attrs) (map #(.withName (Attribute.) (to-sdb-str %)) attrs)
+          (map? attrs) (map (fn [[k v]] (.withValue
+					 (.withName (Attribute.) (to-sdb-str k))
+					 (to-sdb-str v))) attrs)
           :else (throw (Exception. "attrs must be set or map")))))))
+
 
 (defn- attr-str [attr]
   (if (sequential? attr)
@@ -281,18 +291,18 @@
   of a previous call to the same query, e.g. (:next-token (meta last-result))"
   ([client q] (query client q nil))
   ([client q next-token]
-    (let [response (.select client (SelectRequest. (select-str q) next-token))
-          response-meta (.getResponseMetadata response)
-          result (.getSelectResult response)
-          items (.getItem result)
-          m {:box-usage (read-string (.getBoxUsage response-meta))
-             :request-id (.getRequestId response-meta)
+    (let [result (.select client (.withNextToken (SelectRequest. (select-str q))
+						   next-token))
+          ;response-meta (.getResponseMetadata response) ;response no longer returned
+          items (.getItems result)
+          m {;:box-usage (read-string (.getBoxUsage response-meta))
+             ;:request-id (.getRequestId response-meta)
              :next-token (.getNextToken result)}]
       (condp = (simplify-sym (:select q))
-        'count (-> items first .getAttribute (.get 0) .getValue Integer/valueOf)
+        'count (-> items first .getAttributes (.get 0) .getValue Integer/valueOf)
         'ids (with-meta (map #(from-sdb-str (.getName %)) items) m)
         (with-meta (map (fn [item]
-                          (build-item (from-sdb-str (.getName item)) (.getAttribute item)))
+                          (build-item (from-sdb-str (.getName item)) (.getAttributes item)))
                      items)
           m)))))
 
