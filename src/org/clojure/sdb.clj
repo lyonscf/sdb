@@ -50,6 +50,11 @@
   [client name]
   (.createDomain client (CreateDomainRequest. name)))
 
+(defn delete-domain
+  "Deletes a domain in the account. This is an administrative operation"
+  [client name]
+  (.deleteDomain client (DeleteDomainRequest. name)))
+
 (defn domains 
   "Returns a sequence of domain names"
   [client]
