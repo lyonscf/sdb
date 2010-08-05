@@ -4,9 +4,9 @@
                                                    javax.jms/jms
                                                    com.sun.jdmk/jmxtools
                                                    com.sun.jmx/jmxri]]
-                 [com.amazonaws/aws-java-sdk "1.0.002"]
-                 [org.clojure/clojure "1.1.0"]
-                 [org.clojure/clojure-contrib "1.1.0"]]
+                 [com.amazonaws/aws-java-sdk "1.0.007"]
+                 [org.clojure/clojure "1.2.0-master-SNAPSHOT"]
+                 [org.clojure/clojure-contrib "1.2.0-SNAPSHOT"]]
   :dev-dependencies [[swank-clojure "1.2.1"]
                      [lein-clojars "0.5.0-SNAPSHOT"]]
   :source-path "src")
