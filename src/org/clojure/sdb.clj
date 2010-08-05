@@ -316,10 +316,10 @@
   [client q]
   (loop [ret [] next-token nil]
     (let [r1 (query client q next-token)
-          nt (:next-token ^r1)]
+          nt (:next-token (meta r1))]
       (if nt
         (recur (into ret r1) nt)
-        (with-meta (into ret r1) ^r1)))))
+        (with-meta (into ret r1) (meta r1))))))
 
 
 (comment
