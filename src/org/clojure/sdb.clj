@@ -27,7 +27,8 @@
      SelectRequest)
    (com.amazonaws.services.simpledb.util SimpleDBUtils)
    (com.amazonaws.auth BasicAWSCredentials)
-   (com.amazonaws ClientConfiguration)))
+   (com.amazonaws ClientConfiguration)
+   (com.xerox.amazonws.sdb DataUtils)))
 
 (defn uuid
   "Given no arg, generates a random UUID, else takes a string
@@ -108,6 +109,8 @@
 (defmethod to-sdb-str java.util.UUID [u] (encode-sdb-str "U" u))
 (defmethod to-sdb-str java.util.Date [d] (encode-sdb-str "D" (SimpleDBUtils/encodeDate d)))
 (defmethod to-sdb-str Boolean [z] (encode-sdb-str "z" z))
+(defmethod to-sdb-str Double [d]
+           (encode-sdb-str "d" (DataUtils/encodeDouble d)))
 
 (defmulti decode-sdb-str (fn [tag s] tag))
 (defmethod decode-sdb-str "s" [_ s] s)
@@ -117,6 +120,7 @@
 (defmethod decode-sdb-str "U" [_ u] (java.util.UUID/fromString u))
 (defmethod decode-sdb-str "D" [_ d] (SimpleDBUtils/decodeDate d))
 (defmethod decode-sdb-str "z" [_ z] (condp = z, "true" true, "false" false))
+(defmethod decode-sdb-str "d" [_ d] (DataUtils/decodeDouble d))
 
 (defn- item-attrs [item]
   (reduce (fn [kvs [k v :as kv]]
