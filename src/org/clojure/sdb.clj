@@ -25,6 +25,8 @@
      GetAttributesRequest Item ListDomainsRequest  
      PutAttributesRequest ReplaceableAttribute ReplaceableItem
      SelectRequest)
+   (java.utils Date)
+   (java.text SimpleDateFormat)
    (com.amazonaws.services.simpledb.util SimpleDBUtils)
    (com.amazonaws.auth BasicAWSCredentials)
    (com.amazonaws ClientConfiguration)
@@ -98,19 +100,25 @@
     (decode-sdb-str tag str)))
 
 (defn- encode-sdb-str [prefix s]
-  (str prefix ":" s))
+;; (str prefix ":" s))
+   (str s))
 
 (defmulti #^{:doc "Produces the representation of the item as a string for sdb"}
   to-sdb-str type)
 (defmethod to-sdb-str String [s] (encode-sdb-str "s" s))
 (defmethod to-sdb-str clojure.lang.Keyword [k] (encode-sdb-str "k" (name k)))
-(defmethod to-sdb-str Integer [i] (encode-sdb-str "i" (encode-integer 10000000000 i)))
-(defmethod to-sdb-str Long [n] (encode-sdb-str "l" (encode-integer 10000000000000000000 n)))
+(defmethod to-sdb-str Integer [i] (encode-sdb-str "i" i))
+(defmethod to-sdb-str Long [n] (encode-sdb-str "l" n))
 (defmethod to-sdb-str java.util.UUID [u] (encode-sdb-str "U" u))
-(defmethod to-sdb-str java.util.Date [d] (encode-sdb-str "D" (SimpleDBUtils/encodeDate d)))
+(defmethod to-sdb-str java.util.Date [d] 
+   (encode-sdb-str "D" 
+	(def date-format (SimpleDateFormat. "yyyy-MM-dd'T'HH:mm:ss"))
+	(.format date-format d)
+   	)
+   )
 (defmethod to-sdb-str Boolean [z] (encode-sdb-str "z" z))
 (defmethod to-sdb-str Double [d]
-           (encode-sdb-str "d" (DataUtils/encodeDouble d)))
+           (encode-sdb-str "d" (.toString d)))
 
 (defmulti decode-sdb-str (fn [tag s] tag))
 (defmethod decode-sdb-str "s" [_ s] s)
